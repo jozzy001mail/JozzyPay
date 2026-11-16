@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>JozzyPay — stablecoin payment links on QDay Aevum</title>
+<style>
+  :root { --bg:#0e1116; --card:#171c26; --line:#2a3242; --text:#e8ecf3; --muted:#9aa7bd;
+          --accent:#5eead4; --accent-dim:#134e4a; --warn:#fbbf24; --bad:#f87171; --good:#4ade80; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+         background:var(--bg); color:var(--text); }
+  header { padding:28px 20px 8px; max-width:860px; margin:0 auto; }
+  h1 { margin:0 0 6px; font-size:28px; }
+  h1 span { color:var(--accent); }
+  p.sub { color:var(--muted); margin:0 0 4px; max-width:640px; line-height:1.5; }
+  main { max-width:860px; margin:0 auto; padding:16px 20px 48px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:14px;
+          padding:18px; margin:14px 0; }
+  .row { display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
+  .row > * { flex:1 1 auto; }
+  label { display:block; font-size:13px; color:var(--muted); margin:10px 0 4px; }
+  input, select { width:100%; padding:10px 12px; border-radius:9px; border:1px solid var(--line);
+                  background:#0e1116; color:var(--text); font-size:15px; }
+  button { padding:11px 18px; border-radius:10px; border:0; font-size:15px; font-weight:600;
+           cursor:pointer; background:var(--accent); color:#04211d; }
+  button.ghost { background:transparent; border:1px solid var(--line); color:var(--text); }
+  button.danger { background:transparent; border:1px solid var(--bad); color:var(--bad); }
+  button:disabled { opacity:.45; cursor:not-allowed; }
+  .mono { font-family: ui-monospace, Menlo, Consolas, monospace; font-size:13px; word-break:break-all; }
+  .muted { color:var(--muted); }
+  .pill { display:inline-block; padding:3px 10px; border-radius:999px; font-size:12px; font-weight:700; }
+  .pill.OPEN { background:#1e3a5f; color:#93c5fd; }
+  .pill.PAID { background:#4a2f10; color:var(--warn); }
+  .pill.SETTLED { background:#14532d; color:var(--good); }
+  .pill.REFUNDED { background:#3f1d38; color:#f0abfc; }
+  .pill.CANCELLED { background:#2a2a2a; color:var(--muted); }
+  .inv { border:1px solid var(--line); border-radius:12px; padding:14px; margin:10px 0; }
+  .inv h3 { margin:0 0 6px; font-size:17px; }
+  .inv .meta { font-size:14px; color:var(--muted); line-height:1.6; }
+  .inv .actions { margin-top:10px; display:flex; gap:8px; flex-wrap:wrap; }
+  #status { min-height:22px; font-size:14px; margin:8px 0; }
+  #status.err { color:var(--bad); }
+  #status.ok { color:var(--good); }
+  a { color:var(--accent); }
+  .foot { font-size:13px; color:var(--muted); line-height:1.6; }
+  code { background:#0e1116; padding:2px 6px; border-radius:6px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Jozzy<span>Pay</span></h1>
+  <p class="sub">Stablecoin payment links for small businesses, on the QDay Aevum testnet.
+  A shop creates an invoice in <b>tUSD8</b>; a customer pays it; the money sits in escrow
+  until the shop withdraws it. If the shop never withdraws and the invoice expires, the
+  customer can refund themselves. One invoice can never exceed the spend cap (10,000 tUSD8).</p>
+</header>
+<main>
+  <div class="card">
+    <div class="row">
+      <button id="connectBtn">Connect wallet</button>
+      <button id="networkBtn" class="ghost">Add / switch to QDay Aevum</button>
+    </div>
+    <p id="walletLine" class="muted">Not connected. Use MetaMask (or any EVM wallet) on desktop.</p>
+    <p class="muted">Your tUSD8 balance: <b id="balLine">—</b></p>
+    <label for="contractInput">JozzyPay contract address</label>
+    <input id="contractInput" class="mono" spellcheck="false">
+    <p class="muted">Token: <span class="mono" id="tokenLine"></span> · Network: QDay Aevum (chain ID 44005) ·
+    <a id="explorerLink" href="https://explorer-test.qday.info" target="_blank" rel="noopener">Explorer</a></p>
+    <div id="status"></div>
+  </div>
+
+  <div class="card">
+    <h2 style="margin:0 0 4px">Create an invoice</h2>
+    <p class="muted" style="margin:0">You are the merchant. The customer pays this invoice in tUSD8.</p>
+    <label for="amountInput">Amount (tUSD8)</label>
+    <input id="amountInput" type="number" min="0.000001" step="0.000001" placeholder="e.g. 20">
+    <label for="expiryInput">Expires in (hours)</label>
+    <input id="expiryInput" type="number" min="1" step="1" value="24">
+    <label for="memoInput">What is it for? (memo)</label>
+    <input id="memoInput" type="text" maxlength="120" placeholder="e.g. Business plan — Jozzyhub">
+    <div style="height:12px"></div>
+    <button id="createBtn">Create invoice</button>
+  </div>
+
+  <div class="card">
+    <div class="row">
+      <h2 style="margin:0">Invoices</h2>
+      <button id="refreshBtn" class="ghost" style="flex:0 0 auto">Refresh</button>
+    </div>
+    <div id="invoiceList"><p class="muted">Connect a wallet to load invoices.</p></div>
+  </div>
+
+  <p class="foot">How it works: <code>createInvoice</code> opens a payment request. The customer approves
+  tUSD8 once, then <code>payInvoice</code> moves it into escrow. The merchant calls
+  <code>withdraw</code> to collect. If the invoice expires unpaid, it cannot be paid. If it was paid
+  and the merchant never withdrew, the payer can call <code>refund</code> after expiry. The merchant
+  can <code>cancel</code> an unpaid invoice. Contract source is verified on the Aevum explorer.
+  Test tokens only — tUSD8 and tQDAY have no real value.</p>
+</main>
+<script src="https://cdn.jsdelivr.net/npm/ethers@6.13.2/dist/ethers.umd.min.js"></script>
+<script src="./config.js"></script>
+<script>
+const CFG = window.JOZZYPAY_CONFIG;
+const JOZZYPAY_ABI = [
+  "function createInvoice(uint256 amount, uint256 expiresAt, string calldata memo) returns (uint256)",
+  "function payInvoice(uint256 id)",
+  "function withdraw(uint256 id)",
+  "function refund(uint256 id)",
+  "function cancel(uint256 id)",
+  "function getInvoice(uint256 id) view returns (tuple(address merchant, address payer, uint256 amount, uint256 expiresAt, uint256 paidAt, uint8 status, string memo))",
+  "function nextInvoiceId() view returns (uint256)",
+  "function maxInvoiceAmount() view returns (uint256)",
+  "function token() view returns (address)",
+  "function owner() view returns (address)",
+  "event InvoiceCreated(uint256 indexed id, address indexed merchant, uint256 amount, uint256 expiresAt, string memo)",
+  "event InvoicePaid(uint256 indexed id, address indexed payer, uint256 amount)",
+  "event InvoiceSettled(uint256 indexed id, address indexed merchant, uint256 amount)",
+  "event InvoiceRefunded(uint256 indexed id, address indexed payer, uint256 amount)",
+  "event InvoiceCancelled(uint256 indexed id)"
+];
+const ERC20_ABI = [
+  "function balanceOf(address) view returns (uint256)",
+  "function allowance(address owner, address spender) view returns (uint256)",
+  "function approve(address spender, uint256 amount) returns (bool)",
+  "function decimals() view returns (uint8)"
+];
+const STATUS = ["OPEN", "PAID", "SETTLED", "REFUNDED", "CANCELLED"];
+
+let provider = null, signer = null, account = null, pay = null, token = null;
+
+const $ = (id) => document.getElementById(id);
+function setStatus(msg, kind) {
+  const el = $("status"); el.textContent = msg; el.className = kind || "";
+}
+function fmt(amount) { return (Number(amount) / 1e6).toLocaleString(undefined, {maximumFractionDigits: 6}); }
+function parseAmount(s) { return ethers.parseUnits(String(s), CFG.tokenDecimals); }
+function explorerTx(hash) { return CFG.explorer + "/tx/" + hash; }
+function explorerAddr(a) { return CFG.explorer + "/address/" + a; }
+
+async function ensureAevum() {
+  if (!window.ethereum) throw new Error("No wallet found. Install MetaMask first.");
+  try {
+    await window.ethereum.request({ method: "wallet_switchEthereumChain",
+      params: [{ chainId: "0x" + CFG.chainId.toString(16) }] });
+  } catch (e) {
+    if (e && e.code === 4902) {
+      await window.ethereum.request({ method: "wallet_addEthereumChain", params: [{
+        chainId: "0x" + CFG.chainId.toString(16), chainName: CFG.chainName,
+        nativeCurrency: { name: "tQDAY", symbol: "tQDAY", decimals: 18 },
+        rpcUrls: [CFG.rpcUrl], blockExplorerUrls: [CFG.explorer]
+      }]});
+    } else { throw e; }
+  }
+}
+
+async function connect() {
+  if (!window.ethereum) { setStatus("No wallet found. Install MetaMask first.", "err"); return; }
+  setStatus("Connecting…");
+  await ensureAevum();
+  provider = new ethers.BrowserProvider(window.ethereum);
+  signer = await provider.getSigner();
+  account = await signer.getAddress();
+  const addr = $("contractInput").value.trim();
+  pay = new ethers.Contract(addr, JOZZYPAY_ABI, signer);
+  token = new ethers.Contract(CFG.tokenAddress, ERC20_ABI, signer);
+  $("walletLine").innerHTML = "Connected: <span class='mono'>" + account + "</span> · " +
+    "<a target='_blank' rel='noopener' href='" + explorerAddr(account) + "'>view on explorer</a>";
+  setStatus("Connected to QDay Aevum.", "ok");
+  await refreshBalance();
+  await loadInvoices();
+}
+
+async function refreshBalance() {
+  if (!token || !account) return;
+  const bal = await token.balanceOf(account);
+  $("balLine").textContent = fmt(bal) + " tUSD8";
+}
+
+async function loadInvoices() {
+  const list = $("invoiceList");
+  if (!pay) { list.innerHTML = "<p class='muted'>Connect a wallet to load invoices.</p>"; return; }
+  list.innerHTML = "<p class='muted'>Loading…</p>";
+  try {
+    const n = Number(await pay.nextInvoiceId());
+    if (n === 0) { list.innerHTML = "<p class='muted'>No invoices yet. Create the first one above.</p>"; return; }
+    const now = Math.floor(Date.now() / 1000);
+    let html = "";
+    for (let id = n - 1; id >= 0; id--) {
+      const inv = await pay.getInvoice(id);
+      const status = STATUS[Number(inv.status)];
+      const expired = now > Number(inv.expiresAt);
+      const isMerchant = account && inv.merchant.toLowerCase() === account.toLowerCase();
+      const isPayer = account && inv.payer.toLowerCase() === account.toLowerCase();
+      html += "<div class='inv'><h3>#" + id + " — " + fmt(inv.amount) + " tUSD8 " +
+        "<span class='pill " + status + "'>" + status + "</span>" +
+        (expired && status === "OPEN" ? " <span class='pill CANCELLED'>EXPIRED</span>" : "") + "</h3>" +
+        "<div class='meta'>“" + escapeHtml(inv.memo || "(no memo)") + "”<br>" +
+        "Merchant: <span class='mono'>" + inv.merchant + "</span><br>" +
+        (inv.payer !== ethers.ZeroAddress ? "Payer: <span class='mono'>" + inv.payer + "</span><br>" : "") +
+        "Expires: " + new Date(Number(inv.expiresAt) * 1000).toLocaleString() +
+        (inv.paidAt > 0n ? "<br>Paid: " + new Date(Number(inv.paidAt) * 1000).toLocaleString() : "") +
+        "</div><div class='actions'>" +
+        (status === "OPEN" ? "<button data-act='pay' data-id='" + id + "'>Pay " + fmt(inv.amount) + " tUSD8</button>" : "") +
+        (status === "PAID" && isMerchant ? "<button data-act='withdraw' data-id='" + id + "'>Withdraw</button>" : "") +
+        (status === "PAID" && isPayer && expired ? "<button data-act='refund' data-id='" + id + "'>Refund me</button>" : "") +
+        (status === "OPEN" && isMerchant ? "<button class='danger' data-act='cancel' data-id='" + id + "'>Cancel</button>" : "") +
+        "</div></div>";
+    }
+    list.innerHTML = html;
+    list.querySelectorAll("button[data-act]").forEach((b) => {
+      b.addEventListener("click", () => doAction(b.dataset.act, Number(b.dataset.id), b));
+    });
+  } catch (e) {
+    list.innerHTML = "<p class='muted'>Could not load invoices: " + escapeHtml(e.message || String(e)) + "</p>";
+  }
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+}
+
+async function doAction(act, id, btn) {
+  btn.disabled = true;
+  try {
+    let tx;
+    if (act === "pay") {
+      const inv = await pay.getInvoice(id);
+      const allowance = await token.allowance(account, await pay.getAddress());
+      if (allowance < inv.amount) {
+        setStatus("Approving tUSD8 spend first…");
+        tx = await token.approve(await pay.getAddress(), inv.amount);
+        await tx.wait();
+      }
+      setStatus("Paying invoice #" + id + "…");
+      tx = await pay.payInvoice(id);
+    } else if (act === "withdraw") {
+      setStatus("Withdrawing invoice #" + id + "…");
+      tx = await pay.withdraw(id);
+    } else if (act === "refund") {
+      setStatus("Refunding invoice #" + id + "…");
+      tx = await pay.refund(id);
+    } else if (act === "cancel") {
+      setStatus("Cancelling invoice #" + id + "…");
+      tx = await pay.cancel(id);
+    }
+    setStatus("Transaction sent: " + tx.hash + " — waiting for confirmation…");
+    await tx.wait();
+    setStatus("Done. ", "ok");
+    $("status").innerHTML = "Done. <a target='_blank' rel='noopener' href='" + explorerTx(tx.hash) + "'>View transaction</a>";
+    await refreshBalance();
+    await loadInvoices();
+  } catch (e) {
+    setStatus("Failed: " + (e.reason || e.message || String(e)), "err");
+  } finally { btn.disabled = false; }
+}
+
+$("connectBtn").addEventListener("click", () => connect().catch((e) => setStatus("Failed: " + (e.message || String(e)), "err")));
+$("networkBtn").addEventListener("click", () => ensureAevum().then(() => setStatus("Network ready.", "ok")).catch((e) => setStatus("Failed: " + (e.message || String(e)), "err")));
+$("refreshBtn").addEventListener("click", async () => { await refreshBalance(); await loadInvoices(); });
+$("contractInput").addEventListener("change", async () => { if (signer) { pay = new ethers.Contract($("contractInput").value.trim(), JOZZYPAY_ABI, signer); await loadInvoices(); } });
+$("createBtn").addEventListener("click", async () => {
+  if (!pay || !account) { setStatus("Connect your wallet first.", "err"); return; }
+  const btn = $("createBtn"); btn.disabled = true;
+  try {
+    const amount = parseAmount($("amountInput").value);
+    if (amount <= 0n) throw new Error("Amount must be above 0.");
+    const hours = Number($("expiryInput").value);
+    if (!(hours >= 1)) throw new Error("Expiry must be at least 1 hour.");
+    const expiresAt = Math.floor(Date.now() / 1000) + hours * 3600;
+    const memo = $("memoInput").value.trim().slice(0, 120);
+    setStatus("Creating invoice…");
+    const tx = await pay.createInvoice(amount, expiresAt, memo);
+    setStatus("Transaction sent: " + tx.hash + " — waiting for confirmation…");
+    const rc = await tx.wait();
+    setStatus("Invoice created. ", "ok");
+    $("status").innerHTML = "Invoice created. <a target='_blank' rel='noopener' href='" + explorerTx(tx.hash) + "'>View transaction</a>";
+    await loadInvoices();
+  } catch (e) {
+    setStatus("Failed: " + (e.reason || e.message || String(e)), "err");
+  } finally { btn.disabled = false; }
+});
+
+// Init
+$("contractInput").value = CFG.contractAddress || "";
+$("tokenLine").textContent = CFG.tokenAddress + " (" + CFG.tokenSymbol + ", " + CFG.tokenDecimals + " decimals)";
+if (window.ethereum) {
+  window.ethereum.on("accountsChanged", () => location.reload());
+  window.ethereum.on("chainChanged", () => location.reload());
+}
+</script>
+</body>
+</html>
